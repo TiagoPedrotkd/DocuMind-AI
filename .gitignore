@@ -223,3 +223,7 @@ uploads/*
 
 # Analysis history (local data)
 data/history.json
+
+# FAISS vector indexes (per document)
+vector_store/*
+!vector_store/.gitkeep

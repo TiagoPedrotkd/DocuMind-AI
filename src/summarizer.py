@@ -12,6 +12,7 @@ from src.utils import (
     get_gemini_api_key,
     get_gemini_models_to_try,
     get_openai_api_key,
+    get_openai_chat_model,
     truncate_text,
 )
 
@@ -47,7 +48,6 @@ Regras:
 # gemini-2.0-* models were shut down in June 2026 — do not use them.
 GEMINI_MAX_INPUT_CHARS = 30_000
 GEMINI_RETRY_DELAYS_SECONDS = (20, 40, 60)
-OPENAI_MODEL = "gpt-4o-mini"
 
 
 def _build_user_prompt(
@@ -190,7 +190,7 @@ def _generate_with_openai(document_text: str, file_name: str) -> str:
 
     try:
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=get_openai_chat_model(),
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

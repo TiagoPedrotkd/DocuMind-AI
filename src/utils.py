@@ -12,9 +12,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
+VECTOR_STORE_DIR = PROJECT_ROOT / "vector_store"
 MAX_PDF_SIZE_MB = 25
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+RAG_TOP_K = 4
 ALLOWED_MIME_TYPES = {"application/pdf"}
 ALLOWED_EXTENSIONS = {".pdf"}
+DEFAULT_OPENAI_CHAT_MODEL = "gpt-4.1-mini"
+DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-001"
 
 
 class DocuMindError(Exception):
@@ -33,10 +40,28 @@ class SummarizationError(DocuMindError):
     """Raised when AI summarization fails."""
 
 
+class EmbeddingError(DocuMindError):
+    """Raised when embedding generation fails."""
+
+
+class VectorStoreError(DocuMindError):
+    """Raised when vector database operations fail."""
+
+
+class ChatbotError(DocuMindError):
+    """Raised when conversational RAG fails."""
+
+
 def ensure_uploads_dir() -> Path:
     """Create the uploads directory if it does not exist."""
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     return UPLOADS_DIR
+
+
+def ensure_vector_store_dir() -> Path:
+    """Create the vector store directory if it does not exist."""
+    VECTOR_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    return VECTOR_STORE_DIR
 
 
 def _get_secret(key_name: str) -> str:
@@ -79,6 +104,48 @@ def get_openai_api_key() -> str:
         "Chave API OpenAI em falta. Define OPENAI_API_KEY no ficheiro `.env` "
         "ou em `.streamlit/secrets.toml`."
     )
+
+
+def get_openai_chat_model() -> str:
+    """Return the OpenAI chat model used for RAG answers."""
+    return _get_secret("OPENAI_CHAT_MODEL") or DEFAULT_OPENAI_CHAT_MODEL
+
+
+def get_openai_embedding_model() -> str:
+    """Return the OpenAI embedding model used for RAG indexing."""
+    return _get_secret("OPENAI_EMBEDDING_MODEL") or DEFAULT_OPENAI_EMBEDDING_MODEL
+
+
+def get_gemini_embedding_model() -> str:
+    """Return the Gemini embedding model used for RAG indexing."""
+    return _get_secret("GEMINI_EMBEDDING_MODEL") or DEFAULT_GEMINI_EMBEDDING_MODEL
+
+
+def get_rag_provider() -> str:
+    """
+    Determine which provider powers RAG (embeddings + chat).
+
+    Prefers Gemini when GEMINI_API_KEY is available.
+    """
+    if _get_secret("GEMINI_API_KEY") or _get_secret("GOOGLE_API_KEY"):
+        return "gemini"
+    if _get_secret("OPENAI_API_KEY"):
+        return "openai"
+
+    raise ValidationError(
+        "Nenhuma chave API para RAG. Define GEMINI_API_KEY (grátis) "
+        "ou OPENAI_API_KEY no ficheiro `.env`."
+    )
+
+
+def require_rag_api_key() -> str:
+    """Ensure a RAG provider is configured and return its name."""
+    return get_rag_provider()
+
+
+def require_openai_for_rag() -> None:
+    """Backward-compatible alias — validates any RAG provider."""
+    require_rag_api_key()
 
 
 def get_gemini_model() -> str:

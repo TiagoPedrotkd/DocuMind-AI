@@ -1,4 +1,4 @@
-"""DocuMind AI — ponto de entrada da aplicação Streamlit."""
+"""DocuMind AI v2.0 — Assistente conversacional de PDF com RAG."""
 
 from __future__ import annotations
 
@@ -6,16 +6,23 @@ import hashlib
 
 import streamlit as st
 
+from src.chatbot import ChatAnswer, answer_question, generate_suggested_questions
 from src.history import clear_history, get_history_entry, load_history, save_history_entry
 from src.pdf_reader import extract_text_from_pdf, save_uploaded_pdf
 from src.summarizer import generate_summary
 from src.utils import (
+    ChatbotError,
     DocuMindError,
+    SummarizationError,
     ensure_uploads_dir,
-    get_ai_provider,
+    get_gemini_embedding_model,
     get_gemini_model,
+    get_openai_chat_model,
+    get_openai_embedding_model,
+    require_rag_api_key,
     validate_pdf_upload,
 )
+from src.vector_store import build_vector_store, load_vector_store
 
 st.set_page_config(
     page_title="DocuMind AI",
@@ -27,7 +34,7 @@ st.set_page_config(
 CUSTOM_CSS = """
 <style>
     .main-header {
-        font-size: 2.4rem;
+        font-size: 2.3rem;
         font-weight: 700;
         color: #1e3a5f;
         margin-bottom: 0.25rem;
@@ -35,10 +42,7 @@ CUSTOM_CSS = """
     .sub-header {
         font-size: 1.05rem;
         color: #5a6b7d;
-        margin-bottom: 2rem;
-    }
-    div[data-testid="stFileUploader"] section {
-        padding: 1.5rem;
+        margin-bottom: 1.5rem;
     }
 </style>
 """
@@ -51,13 +55,18 @@ EXTRACTION_LABELS = {
 
 
 def _init_session_state() -> None:
-    """Inicializa chaves de sessão usadas para cache e histórico."""
+    """Inicializa o estado da sessão Streamlit."""
     defaults = {
         "file_id": None,
         "pdf_content": None,
         "summary": None,
         "summary_file_id": None,
         "selected_history_id": None,
+        "chunk_count": 0,
+        "rag_ready": False,
+        "vector_store": None,
+        "chat_messages": [],
+        "suggested_questions": [],
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -65,28 +74,197 @@ def _init_session_state() -> None:
 
 
 def _make_file_id(file_name: str, file_bytes: bytes) -> str:
-    """Cria um identificador estável para um ficheiro carregado."""
+    """Cria um identificador estável para o documento."""
     digest = hashlib.sha256(file_bytes).hexdigest()[:16]
     return f"{digest}_{file_name}"
 
 
+def _pdf_extraction_method(pdf_content) -> str:
+    """Obtém o método de extração com compatibilidade retroativa."""
+    return getattr(pdf_content, "extraction_method", "text")
+
+
+def _reset_document_state() -> None:
+    """Limpa o estado associado ao documento ativo."""
+    st.session_state.file_id = None
+    st.session_state.pdf_content = None
+    st.session_state.summary = None
+    st.session_state.summary_file_id = None
+    st.session_state.chunk_count = 0
+    st.session_state.rag_ready = False
+    st.session_state.vector_store = None
+    st.session_state.chat_messages = []
+    st.session_state.suggested_questions = []
+
+
 def _format_timestamp(timestamp: str) -> str:
-    """Formata um timestamp ISO para apresentação."""
     return timestamp.replace("T", " ").replace("+00:00", " UTC")[:19]
 
 
-def render_history_sidebar() -> None:
-    """Mostra o histórico de documentos analisados na barra lateral."""
+def process_uploaded_document(uploaded_file) -> None:
+    """Pipeline completo: validação, extração, chunking, embeddings e FAISS."""
+    file_bytes = uploaded_file.getvalue()
+    file_name = uploaded_file.name
+    file_id = _make_file_id(file_name, file_bytes)
+
+    cached = st.session_state.pdf_content
+    if (
+        st.session_state.file_id == file_id
+        and cached is not None
+        and st.session_state.rag_ready
+        and hasattr(cached, "extraction_method")
+    ):
+        return
+
+    validate_pdf_upload(file_name, file_bytes, uploaded_file.type)
+    require_rag_api_key()
+
+    uploads_dir = ensure_uploads_dir()
+    save_uploaded_pdf(file_name, file_bytes, uploads_dir)
+
+    with st.spinner("A extrair texto do PDF..."):
+        pdf_content = extract_text_from_pdf(file_name, file_bytes)
+
+    with st.spinner("A criar chunks, embeddings e índice FAISS..."):
+        store, chunks = build_vector_store(
+            pdf_content.text,
+            file_id,
+            pdf_content.file_name,
+        )
+        suggested = generate_suggested_questions(
+            pdf_content.text,
+            pdf_content.file_name,
+        )
+
+    st.session_state.file_id = file_id
+    st.session_state.pdf_content = pdf_content
+    st.session_state.summary = None
+    st.session_state.summary_file_id = None
+    st.session_state.selected_history_id = None
+    st.session_state.chunk_count = len(chunks)
+    st.session_state.vector_store = store
+    st.session_state.rag_ready = True
+    st.session_state.chat_messages = []
+    st.session_state.suggested_questions = suggested
+
+
+def _ensure_vector_store_loaded() -> bool:
+    """Garante que o índice FAISS está disponível na sessão."""
+    if st.session_state.vector_store is not None:
+        return True
+
+    file_id = st.session_state.file_id
+    if not file_id:
+        return False
+
+    store = load_vector_store(file_id)
+    if store is None:
+        return False
+
+    st.session_state.vector_store = store
+    st.session_state.rag_ready = True
+    return True
+
+
+def render_sidebar_upload() -> None:
+    """Barra lateral com upload e informação do documento."""
+    st.sidebar.title("DocuMind AI")
+    st.sidebar.markdown("**Versão 2.0** — Assistente conversacional com RAG")
     st.sidebar.divider()
-    st.sidebar.subheader("Histórico")
+
+    uploaded_file = st.sidebar.file_uploader(
+        label="Carregar PDF",
+        type=["pdf"],
+        help="Apenas PDF. Máximo 25 MB.",
+    )
+
+    if uploaded_file is None:
+        return
+
+    try:
+        process_uploaded_document(uploaded_file)
+    except DocuMindError as exc:
+        st.sidebar.error(str(exc))
+        return
+    except Exception as exc:
+        st.sidebar.error(f"Erro inesperado: {exc}")
+        return
+
+    pdf_content = st.session_state.pdf_content
+    if pdf_content is None:
+        return
+
+    st.sidebar.divider()
+    st.sidebar.subheader("Documento")
+    st.sidebar.metric("Nome", pdf_content.file_name)
+    st.sidebar.metric("Páginas", pdf_content.page_count)
+    st.sidebar.metric("Chunks", st.session_state.chunk_count)
+    st.sidebar.caption(
+        f"Extração: {EXTRACTION_LABELS.get(_pdf_extraction_method(pdf_content), 'N/D')}"
+    )
+
+    if st.sidebar.button("Gerar Resumo", type="primary", use_container_width=True):
+        _generate_summary()
+        st.rerun()
+
+
+def _generate_summary() -> None:
+    """Gera e guarda o resumo estruturado do documento ativo."""
+    pdf_content = st.session_state.pdf_content
+    file_id = st.session_state.file_id
+    if pdf_content is None or file_id is None:
+        return
+
+    try:
+        with st.spinner("A gerar resumo com IA..."):
+            summary = generate_summary(pdf_content.text, pdf_content.file_name)
+        st.session_state.summary = summary
+        st.session_state.summary_file_id = file_id
+        save_history_entry(
+            entry_id=file_id,
+            file_name=pdf_content.file_name,
+            page_count=pdf_content.page_count,
+            char_count=pdf_content.char_count,
+            extraction_method=_pdf_extraction_method(pdf_content),
+            summary=summary,
+        )
+    except SummarizationError as exc:
+        st.error(str(exc))
+
+
+def render_sidebar_config() -> None:
+    """Mostra configuração de API na barra lateral."""
+    st.sidebar.divider()
+    st.sidebar.subheader("Configuração")
+
+    try:
+        provider = require_rag_api_key()
+        if provider == "gemini":
+            st.sidebar.success("Google Gemini configurado para RAG")
+            st.sidebar.caption(f"Chat: `{get_gemini_model()}`")
+            st.sidebar.caption(f"Embeddings: `{get_gemini_embedding_model()}`")
+            st.sidebar.caption("Plano gratuito disponível via Google AI Studio.")
+        else:
+            st.sidebar.success("OpenAI configurada para RAG")
+            st.sidebar.caption(f"Chat: `{get_openai_chat_model()}`")
+            st.sidebar.caption(f"Embeddings: `{get_openai_embedding_model()}`")
+    except DocuMindError:
+        st.sidebar.error("Chave API em falta para RAG")
+        st.sidebar.caption("Define `GEMINI_API_KEY` (grátis) ou `OPENAI_API_KEY` no `.env`")
+
+
+def render_sidebar_history() -> None:
+    """Histórico de resumos na barra lateral."""
+    st.sidebar.divider()
+    st.sidebar.subheader("Histórico de resumos")
 
     entries = load_history()
     if not entries:
-        st.sidebar.caption("Ainda não há análises guardadas.")
+        st.sidebar.caption("Sem análises guardadas.")
         return
 
-    for entry in entries[:10]:
-        label = f"{entry.file_name} ({entry.page_count} págs.)"
+    for entry in entries[:8]:
+        label = f"{entry.file_name}"
         if st.sidebar.button(label, key=f"history_{entry.id}", use_container_width=True):
             st.session_state.selected_history_id = entry.id
             st.session_state.summary = entry.summary
@@ -98,269 +276,165 @@ def render_history_sidebar() -> None:
         st.rerun()
 
 
-def render_sidebar() -> None:
-    """Renderiza informação da aplicação e configuração na barra lateral."""
-    st.sidebar.title("DocuMind AI")
-    st.sidebar.markdown("**Versão 1.1** — Análise de PDF com IA")
-    st.sidebar.divider()
-
-    st.sidebar.markdown(
-        """
-        Carrega um PDF, revê o texto extraído e clica em **Gerar Resumo**.
-
-        **O resumo inclui:**
-        - Resumo Executivo
-        - Tópicos Principais
-        - Conclusões-Chave
-        - Riscos ou Preocupações
-        - Ações Recomendadas
-        """
-    )
-
-    st.sidebar.divider()
-    st.sidebar.subheader("Configuração")
-
-    try:
-        provider = get_ai_provider()
-        provider_label = "Google Gemini" if provider == "gemini" else "OpenAI"
-        st.sidebar.success(f"Chave API {provider_label} detetada")
-        if provider == "gemini":
-            st.sidebar.caption(f"Modelo: `{get_gemini_model()}`")
-            st.sidebar.caption("Plano gratuito: até 500 resumos/dia com 3.1 Flash Lite.")
-            st.sidebar.warning(
-                "Aguarda 1–2 min entre pedidos. Máximo 15 pedidos/minuto."
-            )
-    except DocuMindError:
-        st.sidebar.error("Chave API em falta")
-        st.sidebar.caption(
-            "Define `GEMINI_API_KEY` (grátis) ou `OPENAI_API_KEY` no `.env`"
-        )
-
-    render_history_sidebar()
-
-
 def render_header() -> None:
-    """Renderiza o cabeçalho principal."""
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     st.markdown('<p class="main-header">DocuMind AI</p>', unsafe_allow_html=True)
     st.markdown(
-        '<p class="sub-header">Transforma documentos PDF em informação acionável</p>',
+        '<p class="sub-header">Assistente conversacional com RAG para análise de PDFs</p>',
         unsafe_allow_html=True,
     )
 
 
-def render_document_metrics(
-    file_name: str,
-    page_count: int,
-    char_count: int,
-    extraction_method: str,
-) -> None:
-    """Mostra métricas principais do documento carregado."""
-    col1, col2, col3, col4 = st.columns(4)
+def render_summary_section() -> None:
+    """Área principal com resumo estruturado."""
+    file_id = st.session_state.file_id
+    summary = st.session_state.summary
 
-    with col1:
-        st.metric(label="Documento", value=file_name)
-    with col2:
-        st.metric(label="Páginas", value=page_count)
-    with col3:
-        st.metric(label="Caracteres extraídos", value=f"{char_count:,}")
-    with col4:
-        st.metric(
-            label="Método de extração",
-            value=EXTRACTION_LABELS.get(extraction_method, extraction_method),
-        )
-
-
-def render_history_detail() -> bool:
-    """Mostra um registo do histórico selecionado. Retorna True se renderizou."""
-    entry_id = st.session_state.selected_history_id
-    if not entry_id:
-        return False
-
-    entry = get_history_entry(entry_id)
-    if entry is None:
-        st.session_state.selected_history_id = None
-        return False
-
-    st.info(f"A ver análise guardada de **{entry.file_name}** ({_format_timestamp(entry.timestamp)})")
-    render_document_metrics(
-        entry.file_name,
-        entry.page_count,
-        entry.char_count,
-        entry.extraction_method,
-    )
-
-    st.subheader("Resumo gerado por IA")
-    with st.container(border=True):
-        st.markdown(entry.summary)
-
-    st.download_button(
-        label="Descarregar resumo",
-        data=f"Documento: {entry.file_name}\n\n{entry.summary}",
-        file_name=f"{entry.file_name.rsplit('.', 1)[0]}_resumo.txt",
-        mime="text/plain",
-        use_container_width=True,
-        key="download_history_summary_button",
-    )
-    return True
-
-
-def _pdf_extraction_method(pdf_content) -> str:
-    """Obtém o método de extração, compatível com sessões em cache antigas."""
-    return getattr(pdf_content, "extraction_method", "text")
-
-
-def extract_and_cache(uploaded_file) -> None:
-    """Valida e extrai texto do PDF, guardando o resultado em sessão."""
-    file_bytes = uploaded_file.getvalue()
-    file_name = uploaded_file.name
-    file_id = _make_file_id(file_name, file_bytes)
-
-    cached = st.session_state.pdf_content
-    if (
-        st.session_state.file_id == file_id
-        and cached is not None
-        and hasattr(cached, "extraction_method")
-    ):
-        return
-
-    validate_pdf_upload(file_name, file_bytes, uploaded_file.type)
-
-    uploads_dir = ensure_uploads_dir()
-    save_uploaded_pdf(file_name, file_bytes, uploads_dir)
-
-    with st.spinner("A extrair texto do PDF..."):
-        pdf_content = extract_text_from_pdf(file_name, file_bytes)
-
-    st.session_state.file_id = file_id
-    st.session_state.pdf_content = pdf_content
-    st.session_state.summary = None
-    st.session_state.summary_file_id = None
-    st.session_state.selected_history_id = None
-
-
-def render_summary_section(file_id: str) -> None:
-    """Mostra o botão de geração e qualquer resumo em cache ou novo."""
-    pdf_content = st.session_state.pdf_content
-    if pdf_content is None:
-        st.warning(
-            "A extração de texto ainda está em curso. Volta a carregar o PDF se persistir."
-        )
-        return
-
-    st.divider()
-    st.subheader("Passo 2 — Gerar resumo com IA")
-    st.caption(
-        "Clica uma vez e aguarda. No plano gratuito do Gemini, espera 1–2 minutos entre tentativas."
-    )
-
-    generate_clicked = st.button(
-        "Gerar Resumo",
-        type="primary",
-        use_container_width=True,
-        key="generate_summary_button",
-    )
-
-    if generate_clicked:
-        try:
-            with st.spinner(
-                "A gerar resumo com IA... Pode demorar até 2 minutos no plano gratuito."
-            ):
-                summary = generate_summary(pdf_content.text, pdf_content.file_name)
-            st.session_state.summary = summary
-            st.session_state.summary_file_id = file_id
-            save_history_entry(
-                entry_id=file_id,
-                file_name=pdf_content.file_name,
-                page_count=pdf_content.page_count,
-                char_count=pdf_content.char_count,
-                extraction_method=_pdf_extraction_method(pdf_content),
-                summary=summary,
-            )
-        except DocuMindError as exc:
-            st.error(str(exc))
+    if st.session_state.selected_history_id and st.session_state.get("pdf_content") is None:
+        entry = get_history_entry(st.session_state.selected_history_id)
+        if entry:
             st.info(
-                "Dica: aguarda 2 minutos, usa um PDF mais pequeno ou verifica a quota em "
-                "https://aistudio.google.com"
+                f"A ver resumo guardado de **{entry.file_name}** "
+                f"({_format_timestamp(entry.timestamp)})"
             )
-            return
-        except Exception as exc:
-            st.error(f"Ocorreu um erro inesperado: {exc}")
-            return
+            summary = entry.summary
 
-    if (
-        st.session_state.summary_file_id == file_id
-        and st.session_state.summary
-    ):
-        st.subheader("Resumo gerado por IA")
-        with st.container(border=True):
-            st.markdown(st.session_state.summary)
+    if not summary:
+        st.subheader("Resumo do documento")
+        st.info("Carrega um PDF e clica em **Gerar Resumo** na barra lateral.")
+        return
 
+    st.subheader("Resumo do documento")
+    with st.container(border=True):
+        st.markdown(summary)
+
+    pdf_content = st.session_state.pdf_content
+    if pdf_content and st.session_state.summary_file_id == file_id:
         st.download_button(
             label="Descarregar resumo",
-            data=f"Documento: {pdf_content.file_name}\n\n{st.session_state.summary}",
+            data=f"Documento: {pdf_content.file_name}\n\n{summary}",
             file_name=f"{pdf_content.file_name.rsplit('.', 1)[0]}_resumo.txt",
             mime="text/plain",
             use_container_width=True,
-            key="download_summary_button",
         )
+
+
+def _append_chat_message(role: str, content: str, sources: list | None = None) -> None:
+    message = {"role": role, "content": content}
+    if sources:
+        message["sources"] = sources
+    st.session_state.chat_messages.append(message)
+
+
+def _handle_user_question(question: str) -> None:
+    """Processa uma pergunta do utilizador via RAG."""
+    pdf_content = st.session_state.pdf_content
+    if pdf_content is None:
+        st.warning("Carrega um PDF antes de fazer perguntas.")
+        return
+
+    if not _ensure_vector_store_loaded():
+        st.error("Índice vetorial indisponível. Volta a carregar o PDF.")
+        return
+
+    _append_chat_message("user", question)
+
+    try:
+        with st.spinner("A pesquisar no documento e a gerar resposta..."):
+            result: ChatAnswer = answer_question(
+                st.session_state.vector_store,
+                question,
+                pdf_content.file_name,
+            )
+        serializable_sources = [
+            {
+                "chunk_id": source.chunk_id,
+                "excerpt": source.excerpt,
+                "score": source.score,
+                "start_index": source.start_index,
+                "end_index": source.end_index,
+            }
+            for source in result.sources
+        ]
+        _append_chat_message("assistant", result.content, serializable_sources)
+    except ChatbotError as exc:
+        _append_chat_message(
+            "assistant",
+            f"Não foi possível responder: {exc}",
+        )
+
+
+def render_chat_section() -> None:
+    """Secção de chat conversacional com perguntas sugeridas e fontes."""
+    st.divider()
+    st.subheader("Assistente conversacional")
+
+    if not st.session_state.rag_ready:
+        st.info(
+            "Carrega um PDF na barra lateral para ativar o assistente. "
+            "As respostas serão baseadas apenas no conteúdo do documento (RAG)."
+        )
+        return
+
+    suggested = st.session_state.suggested_questions
+    if suggested:
+        st.caption("Perguntas sugeridas:")
+        cols = st.columns(2)
+        for index, question in enumerate(suggested):
+            with cols[index % 2]:
+                if st.button(question, key=f"suggested_{index}", use_container_width=True):
+                    _handle_user_question(question)
+                    st.rerun()
+
+    for message in st.session_state.chat_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            if message["role"] == "assistant" and message.get("sources"):
+                with st.expander("Fontes utilizadas"):
+                    for source in message["sources"]:
+                        st.markdown(
+                            f"**Trecho {source['chunk_id']}** "
+                            f"(relevância: {source['score']:.3f} | "
+                            f"posição {source['start_index']}–{source['end_index']})"
+                        )
+                        st.caption(source["excerpt"])
+
+    user_input = st.chat_input("Faz uma pergunta sobre o documento...")
+    if user_input:
+        _handle_user_question(user_input)
+        st.rerun()
 
 
 def main() -> None:
-    """Executa a aplicação Streamlit DocuMind AI."""
+    """Ponto de entrada da aplicação."""
     _init_session_state()
-    render_sidebar()
+    render_sidebar_upload()
+    render_sidebar_config()
+    render_sidebar_history()
     render_header()
 
-    if render_history_detail() and st.session_state.get("pdf_content") is None:
-        return
-
-    uploaded_file = st.file_uploader(
-        label="Carregar documento PDF",
-        type=["pdf"],
-        help="Formato suportado: apenas PDF. Tamanho máximo: 25 MB.",
+    tab_resumo, tab_chat, tab_texto = st.tabs(
+        ["Resumo", "Assistente", "Texto extraído"]
     )
 
-    if uploaded_file is None:
-        if st.session_state.selected_history_id:
-            return
+    with tab_resumo:
+        render_summary_section()
 
-        st.session_state.file_id = None
-        st.session_state.pdf_content = None
-        st.session_state.summary = None
-        st.session_state.summary_file_id = None
-        st.info("Carrega um ficheiro PDF para começar a análise.")
-        return
+    with tab_chat:
+        render_chat_section()
 
-    try:
-        extract_and_cache(uploaded_file)
-    except DocuMindError as exc:
-        st.error(str(exc))
-        return
-    except Exception as exc:
-        st.error(f"Ocorreu um erro inesperado: {exc}")
-        st.caption("Se o problema persistir, verifica o PDF e a configuração da API.")
-        return
-
-    pdf_content = st.session_state.pdf_content
-    st.subheader("Passo 1 — Visão geral do documento")
-    render_document_metrics(
-        pdf_content.file_name,
-        pdf_content.page_count,
-        pdf_content.char_count,
-        _pdf_extraction_method(pdf_content),
-    )
-
-    render_summary_section(st.session_state.file_id)
-
-    with st.expander("Ver texto extraído", expanded=False):
-        st.text_area(
-            label="Texto extraído",
-            value=pdf_content.text,
-            height=300,
-            disabled=True,
-            label_visibility="collapsed",
-        )
+    with tab_texto:
+        pdf_content = st.session_state.pdf_content
+        if pdf_content is None:
+            st.info("O texto extraído aparecerá aqui após carregar um PDF.")
+        else:
+            st.text_area(
+                label="Texto extraído",
+                value=pdf_content.text,
+                height=420,
+                disabled=True,
+                label_visibility="collapsed",
+            )
 
 
 if __name__ == "__main__":
