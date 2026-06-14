@@ -1,4 +1,4 @@
-"""DocuMind AI v6.0 — Multi-Agent Project Intelligence Platform."""
+"""DocuMind AI — Personal Tech Analyst Assistant."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import hashlib
 import streamlit as st
 
 from src.agent_models import AgentPlatformState
-from src.agent_ui import render_multi_agent_platform
 from src.analyst_models import CopilotResults
 from src.chatbot import ChatAnswer, answer_question, generate_analyst_questions
 from src.comparison_engine import (
@@ -39,7 +38,7 @@ from src.export_utils import (
     export_pdf,
 )
 from src.history import save_history_entry
-from src.home_ui import render_home_guide, render_sidebar_progress
+from src.home_ui import render_home_analyst_workspace, render_home_guide, render_sidebar_progress
 from src.insights_engine import generate_insights_dashboard
 from src.question_router import (
     detect_comparison_intent,
@@ -49,7 +48,6 @@ from src.question_router import (
 from src.role_views import ROLE_OPTIONS
 from src.session_store import load_session_state, save_session_state
 from src.summarizer import generate_summary
-from src.config import ORCHESTRATOR_MODE, api_configured, neo4j_configured, postgres_configured, redis_configured
 from src.ui_theme import inject_theme, panel, render_hero_header, render_sidebar_brand
 from src.utils import (
     ChatbotError,
@@ -137,10 +135,6 @@ def _collection_label() -> str:
 
 def _get_copilot() -> CopilotResults | None:
     return st.session_state.copilot_results
-
-
-def _get_agent_platform() -> AgentPlatformState | None:
-    return st.session_state.agent_platform
 
 
 def _get_delivery() -> DeliveryResults | None:
@@ -346,17 +340,6 @@ def process_uploaded_documents(uploaded_files: list) -> None:
         _rebuild_index(clear_analysis=False)
 
 
-def render_sidebar_enterprise_status() -> None:
-    """Show enterprise stack status."""
-    st.sidebar.divider()
-    st.sidebar.markdown("**Enterprise Stack**")
-    st.sidebar.caption(f"Orchestrator: `{ORCHESTRATOR_MODE}`")
-    st.sidebar.caption(f"API: {'✅' if api_configured() else '○ local'}")
-    st.sidebar.caption(f"PostgreSQL: {'✅' if postgres_configured() else '○'}")
-    st.sidebar.caption(f"Redis: {'✅' if redis_configured() else '○'}")
-    st.sidebar.caption(f"Neo4j: {'✅' if neo4j_configured() else '○ SQLite'}")
-
-
 def render_sidebar_upload() -> None:
     """Barra lateral com upload multi-documento."""
     render_sidebar_brand()
@@ -502,25 +485,12 @@ def render_sidebar_config() -> None:
         st.sidebar.caption("Define `GEMINI_API_KEY` (grátis) ou `OPENAI_API_KEY` no `.env`")
 
 
-def render_sidebar_role() -> None:
-    """Role-based view selector."""
-    st.sidebar.divider()
-    st.sidebar.subheader("Perfil / Role")
-    st.session_state.user_role = st.sidebar.selectbox(
-        "Vista por role",
-        ROLE_OPTIONS,
-        index=ROLE_OPTIONS.index(st.session_state.user_role)
-        if st.session_state.user_role in ROLE_OPTIONS
-        else 0,
-    )
-
-
 def render_header() -> None:
     inject_theme()
     render_hero_header(
         title="DocuMind AI",
-        subtitle="Inteligência multi-agent para requisitos, arquitetura, riscos e entrega de projetos.",
-        badge="v6.0 · Enterprise",
+        subtitle="O teu assistente de analista — lê documentos, extrai requisitos, gera stories e prepara o Jira.",
+        badge="Tech Analyst",
     )
 
 
@@ -891,139 +861,107 @@ def main() -> None:
     render_sidebar_upload()
     render_sidebar_search_scope()
     render_sidebar_comparison()
-    render_sidebar_role()
-
     render_sidebar_config()
-    render_sidebar_enterprise_status()
     render_sidebar_progress(
         _get_copilot(),
         _get_delivery(),
-        _get_agent_platform(),
         bool(_get_collection().documents),
     )
     render_header()
 
-    (
-        tab_home,
-        tab_analysis,
-        tab_deliverables,
-        tab_assistant,
-        tab_more,
-    ) = st.tabs(
-        [
-            "Início",
-            "Análise",
-            "Entregáveis",
-            "Assistente",
-            "Mais",
-        ]
+    tab_home, tab_deliverables, tab_assistant, tab_more = st.tabs(
+        ["Início", "Entregáveis", "Assistente", "Mais"]
     )
 
     has_store = _ensure_vector_store_loaded()
     has_docs = bool(_get_collection().documents)
 
     with tab_home:
-        render_home_guide(
-            _get_copilot(),
-            _get_delivery(),
-            _get_agent_platform(),
-            has_docs,
-        )
+        render_home_guide(_get_copilot(), _get_delivery(), has_docs)
         if has_store:
-            render_multi_agent_platform(
+            render_home_analyst_workspace(
                 store=st.session_state.vector_store,
                 copilot=_get_copilot(),
                 delivery=_get_delivery(),
-                platform=_get_agent_platform(),
                 collection_label=_collection_label(),
                 document_names=_active_search_scope(),
                 on_save=_save_session,
             )
         else:
-            with panel("Orchestrator", "Carrega documentos para ativar a equipa multi-agent."):
+            with panel("Analyst Copilot", "Carrega documentos para começar a análise."):
                 st.info("Carrega PDFs na barra lateral para começar.")
 
-    with tab_analysis:
-        if not has_store:
-            st.info("Carrega documentos para executar análises.")
-        else:
-            analysis_mode = st.radio(
-                "Tipo de análise",
-                ["Analyst Copilot (v4)", "Delivery Intelligence (v5)"],
-                horizontal=True,
-                key="analysis_mode",
-            )
-            if analysis_mode.startswith("Analyst"):
-                with panel("Analyst Copilot", "Extrai requisitos, stories, riscos e lacunas."):
-                    render_copilot_dashboard(
-                        _get_copilot(),
-                        store=st.session_state.vector_store,
-                        document_names=_active_search_scope(),
-                        on_save=_save_session,
-                    )
-            else:
-                with panel("Delivery Intelligence", "Health, estimations, Jira drafts e relatórios."):
-                    render_delivery_dashboard(
-                        _get_copilot(),
-                        _get_delivery(),
-                        store=st.session_state.vector_store,
-                        collection_label=_collection_label(),
-                        document_names=_active_search_scope(),
-                        on_save=_save_session,
-                    )
-
     with tab_deliverables:
-        with panel("Analyst Copilot — Entregáveis v4", "Requisitos, stories, riscos e rastreabilidade."):
+        with panel("Análise", "Requisitos, user stories, riscos, perguntas para workshop e rastreabilidade."):
             render_copilot_deliverables(_get_copilot())
-        with panel("Delivery Intelligence — Entregáveis v5", "Jira, Confluence, testes e lifecycle."):
+        with panel("Jira & Delivery", "Drafts Jira, testes, health e lifecycle."):
             render_delivery_deliverables(_get_delivery())
 
     with tab_assistant:
         assistant_mode = st.radio(
             "Modo",
-            ["Chat (RAG)", "Reuniões", "Knowledge Base", "Vista por Role"],
+            ["Chat (RAG)", "Reuniões"],
             horizontal=True,
             key="assistant_mode",
         )
         if assistant_mode.startswith("Chat"):
             with panel("Assistente RAG", "Perguntas sobre os documentos carregados."):
                 render_chat_tab()
-        elif assistant_mode.startswith("Reuni"):
+        else:
             with panel("Meeting Intelligence", "Analisa notas e transcripts de reuniões."):
                 render_meeting_intelligence(on_save=_save_session)
-        elif assistant_mode.startswith("Knowledge"):
-            with panel("Knowledge Base", "Pesquisa na base de conhecimento do projeto."):
-                render_knowledge_base(_get_copilot())
-        else:
-            with panel("Vista por Role", "Dashboard adaptado ao teu perfil."):
-                render_role_view(st.session_state.user_role, _get_copilot(), _get_delivery())
 
     with tab_more:
         more_mode = st.radio(
             "Secção",
-            ["Exportar", "Integrações", "Resumos & Insights"],
+            ["Exportar", "Resumos & Insights", "Avançado"],
             horizontal=True,
             key="more_mode",
         )
         if more_mode.startswith("Exportar"):
             with panel("Relatório consolidado", "Exporta resumos, insights e conversas."):
                 render_export_tab()
-            with panel("Export Analyst Copilot", "Markdown, Word, PDF e Excel — v4."):
+            with panel("Export Analyst Copilot", "Markdown, Word, PDF e Excel."):
                 render_copilot_export_center(_get_copilot(), _collection_label())
-            with panel("Export Delivery Intelligence", "Markdown, Word, PDF e Excel — v5."):
+            with panel("Export Jira & Delivery", "Markdown, Word, PDF e Excel."):
                 render_delivery_export_center(_get_delivery(), _collection_label())
-        elif more_mode.startswith("Integra"):
-            with panel("Integrações Enterprise", "Jira, Confluence e Azure DevOps."):
-                render_integrations_panel(_get_delivery())
-            with panel("Audit Log", "Histórico de ações e sincronizações."):
-                render_audit_log()
-        else:
+        elif more_mode.startswith("Resumos"):
             with panel("Resumos", "Resumos por documento e da coleção."):
                 render_summary_tab()
             with panel("Insights & Comparação", "Painel de insights e comparação entre documentos."):
                 render_insights_tab()
                 st.markdown("---")
                 render_comparison_tab()
+        else:
+            with panel("Delivery Intelligence", "Health, estimations, testes e relatórios executivos."):
+                copilot = _get_copilot()
+                if has_store and copilot and copilot.requirements:
+                    render_delivery_dashboard(
+                        copilot,
+                        _get_delivery(),
+                        store=st.session_state.vector_store,
+                        collection_label=_collection_label(),
+                        document_names=_active_search_scope(),
+                        on_save=_save_session,
+                    )
+                else:
+                    st.info("Executa o pipeline completo na tab **Início** antes de usar funcionalidades avançadas.")
+            with panel("Integrações", "Jira, Confluence e Azure DevOps."):
+                render_integrations_panel(_get_delivery())
+            with panel("Knowledge Base & Vista por Role", "Pesquisa persistente e dashboard por perfil."):
+                st.session_state.user_role = st.selectbox(
+                    "Vista por role",
+                    ROLE_OPTIONS,
+                    index=ROLE_OPTIONS.index(st.session_state.user_role)
+                    if st.session_state.user_role in ROLE_OPTIONS
+                    else 0,
+                    key="advanced_role_select",
+                )
+                render_knowledge_base(_get_copilot())
+                st.divider()
+                render_role_view(st.session_state.user_role, _get_copilot(), _get_delivery())
+            with panel("Audit Log", "Histórico de ações e sincronizações."):
+                render_audit_log()
 
 
 if __name__ == "__main__":

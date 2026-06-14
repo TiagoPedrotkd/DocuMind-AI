@@ -101,8 +101,8 @@ def render_copilot_dashboard(
 
     if copilot is None or not _has_any_results(copilot):
         st.info(
-            "Carrega documentos e executa o **pipeline completo** ou um **módulo individual** "
-            "para gerar entregáveis de analista."
+            "Carrega documentos e clica **Executar análise** (pipeline completo) "
+            "para gerar requisitos, stories, riscos e perguntas para workshop."
         )
         return
 

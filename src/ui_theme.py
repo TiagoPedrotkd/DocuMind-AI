@@ -539,7 +539,7 @@ def render_sidebar_brand() -> None:
         """
         <div class="dm-sidebar-brand">
             <p class="dm-logo">Docu<span>Mind</span> AI</p>
-            <p>Project Intelligence</p>
+            <p>Tech Analyst Assistant</p>
         </div>
         """,
         unsafe_allow_html=True,
