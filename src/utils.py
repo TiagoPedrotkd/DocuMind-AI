@@ -13,6 +13,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
 VECTOR_STORE_DIR = PROJECT_ROOT / "vector_store"
+DOCUMENTS_DIR = PROJECT_ROOT / "documents"
 MAX_PDF_SIZE_MB = 25
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
@@ -62,6 +63,19 @@ def ensure_vector_store_dir() -> Path:
     """Create the vector store directory if it does not exist."""
     VECTOR_STORE_DIR.mkdir(parents=True, exist_ok=True)
     return VECTOR_STORE_DIR
+
+
+def ensure_documents_dir() -> Path:
+    """Create the documents metadata directory if it does not exist."""
+    DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    return DOCUMENTS_DIR
+
+
+def hash_filename(name: str) -> str:
+    """Return a stable short hash for a filename or composite key."""
+    import hashlib
+
+    return hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
 
 
 def _get_secret(key_name: str) -> str:

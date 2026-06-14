@@ -1,51 +1,50 @@
 # DocuMind AI
 
-Plataforma de análise de documentos com IA que transforma PDFs em resumos estruturados e respostas conversacionais baseadas no conteúdo do documento (RAG).
+Plataforma de inteligência documental com IA que analisa, compara e responde a perguntas sobre múltiplos documentos de negócio simultaneamente.
 
-**Versão 2.0** — Assistente conversacional com LangChain, FAISS e Gemini/OpenAI.
+**Versão 3.0** — Plataforma multi-documento com comparação, contradições, painel de insights e exportação.
 
 ---
 
 ## Funcionalidades
 
+### Versão 3.0 (completa)
+- **Upload multi-documento** — Vários PDFs na mesma sessão
+- **Persistência de sessão** — Coleção, chat e análises restaurados ao reabrir a app
+- **Resumos** — Por documento e da coleção completa
+- **Exportação consolidada** — Relatório completo (resumos + insights + comparação + chat)
+- **Comparação via chat** — Perguntas comparativas detetadas automaticamente no assistente
+
+### Versão 2.0 (mantidas)
+- RAG com LangChain + FAISS
+- Embeddings Gemini ou OpenAI
+- OCR para PDFs digitalizados
+
 ### Versão 1.x (mantidas)
-- Upload e validação de PDF
-- Extração de texto (PyMuPDF) com OCR para digitalizados
+- Extração PyMuPDF + OCR
 - Resumos estruturados com IA
 - Interface em português
-- Histórico de resumos
-
-### Versão 2.0 (novas)
-- **RAG** — Respostas baseadas apenas no documento carregado
-- **Chunking** — 1000 caracteres, overlap 200
-- **Embeddings** — Gemini `gemini-embedding-001` ou OpenAI `text-embedding-3-small`
-- **Vector store** — FAISS com pesquisa semântica
-- **Chat conversacional** — Perguntas em linguagem natural
-- **Fontes** — Trechos do documento usados em cada resposta
-- **Perguntas sugeridas** — Geradas automaticamente
 
 ---
 
-## Arquitetura RAG
+## Arquitetura
 
 ```
-PDF Upload
+Múltiplos PDFs
     ↓
-Text Extraction (+ OCR se necessário)
+Extração de texto (+ OCR)
     ↓
-Chunking (1000 / 200 overlap)
+Chunking por página (1000 / 200 overlap)
     ↓
-Gemini/OpenAI Embeddings
+Embeddings (Gemini / OpenAI)
     ↓
-FAISS Vector Store
+Índice FAISS unificado + metadados
     ↓
-Pergunta do utilizador
+Pesquisa semântica (com filtro opcional)
     ↓
-Similarity Search (top-K chunks)
+GPT / Gemini
     ↓
-Gemini / GPT
-    ↓
-Resposta + Fontes
+Resposta + Fontes + Insights + Comparação
 ```
 
 ---
@@ -61,16 +60,23 @@ documind-ai/
 │
 ├── uploads/
 ├── vector_store/
+├── documents/
 ├── data/
 │
 ├── src/
 │   ├── pdf_reader.py
 │   ├── ocr_reader.py
+│   ├── document_manager.py
 │   ├── text_chunker.py
 │   ├── embeddings.py
 │   ├── vector_store.py
 │   ├── summarizer.py
 │   ├── chatbot.py
+│   ├── comparison_engine.py
+│   ├── insights_engine.py
+│   ├── export_utils.py
+│   ├── session_store.py
+│   ├── question_router.py
 │   ├── history.py
 │   └── utils.py
 │
@@ -82,8 +88,8 @@ documind-ai/
 ## Pré-requisitos
 
 - **Python 3.12+**
-- **OpenAI API key** (opcional — só necessária se não usares Gemini)
 - **Chave API Gemini** (recomendado, gratuito) — [Google AI Studio](https://aistudio.google.com/apikey)
+- **OpenAI API key** (opcional — alternativa à Gemini)
 
 ---
 
@@ -104,14 +110,6 @@ GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 ```
 
-Alternativa com OpenAI:
-
-```env
-OPENAI_API_KEY=sk-your-key-here
-OPENAI_CHAT_MODEL=gpt-4.1-mini
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-```
-
 ---
 
 ## Executar
@@ -125,23 +123,26 @@ streamlit run app.py
 ## Como usar
 
 ### Barra lateral
-1. Carrega um PDF
-2. Aguarda indexação (extração → chunks → embeddings → FAISS)
-3. Vê páginas, chunks e método de extração
-4. Clica **Gerar Resumo**
+1. Carrega um ou mais PDFs
+2. Aguarda indexação (extração → chunks por página → embeddings → FAISS)
+3. Gere a lista de documentos e escolhe o **âmbito de pesquisa**
+4. Usa a **ferramenta de comparação** para analisar dois documentos
 
 ### Área principal
-- **Resumo** — Resumo executivo estruturado
-- **Assistente** — Chat sobre o documento com fontes
-- **Texto extraído** — Conteúdo completo extraído
+- **Resumos** — Resumo estruturado por documento ou da coleção
+- **Painel de Insights** — Dashboard automático do analista
+- **Comparação** — Resultados de comparação, contradições e lacunas
+- **Assistente** — Chat multi-documento com comparação automática por pergunta
+- **Exportar** — Relatório completo em Markdown, Word ou PDF
 
-### Exemplo de chat
+A sessão (documentos, chat, análises) é guardada em `documents/` e restaurada ao reiniciar a app.
 
-**Utilizador:** Qual é o prazo do projeto?
+### Exemplos de perguntas
 
-**Assistente:** De acordo com o documento, a fase de implementação deve estar concluída até dezembro de 2026.
-
-**Fontes:** Trecho 3, Trecho 7
+- *Quais são os principais requisitos em todos os documentos?*
+- *Que requisitos aparecem no BRD mas não na especificação técnica?*
+- *Que integrações são mencionadas em todos os documentos?*
+- *Quais são os riscos do projeto?*
 
 ---
 
@@ -149,11 +150,13 @@ streamlit run app.py
 
 | Variável | Obrigatória | Descrição |
 |----------|-------------|-----------|
-| `GEMINI_API_KEY` | Sim* | Chave Google Gemini (chat + embeddings + resumos) |
+| `GEMINI_API_KEY` | Sim* | Chave Google Gemini (chat + embeddings) |
 | `GEMINI_MODEL` | Não | Modelo de chat (predefinição: `gemini-3.1-flash-lite`) |
-| `GEMINI_EMBEDDING_MODEL` | Não | Modelo de embeddings (predefinição: `gemini-embedding-001`) |
-| `OPENAI_API_KEY` | Sim* | Alternativa à Gemini para RAG |
+| `GEMINI_EMBEDDING_MODEL` | Não | Embeddings (predefinição: `gemini-embedding-001`) |
+| `OPENAI_API_KEY` | Sim* | Alternativa à Gemini |
 | `TESSERACT_CMD` | Não | Caminho do Tesseract no Windows |
+
+\* Pelo menos uma chave (Gemini ou OpenAI) é necessária.
 
 ---
 
@@ -163,32 +166,29 @@ streamlit run app.py
 |------------|------------|
 | Frontend | Streamlit |
 | PDF | PyMuPDF + OCR (Tesseract/Gemini) |
-| Chunking | Módulo custom `text_chunker.py` |
-| Embeddings | LangChain + Gemini ou OpenAI |
-| Vector DB | FAISS (LangChain Community) |
-| Chat RAG | LangChain + Gemini ou OpenAI |
-| Resumos | Gemini ou OpenAI |
+| RAG | LangChain + FAISS |
+| Embeddings | Gemini `gemini-embedding-001` ou OpenAI |
+| Chat | Gemini `gemini-3.1-flash-lite` ou GPT-4.1-mini |
+| Exportação | python-docx, fpdf2 |
 
 ---
 
-## Preparado para v3.0
+## Preparado para v4.0
 
-A arquitetura modular suporta futuras extensões:
-
-- Múltiplos PDFs por sessão
-- Comparação entre documentos
-- Base de conhecimento persistente
-- Autenticação de utilizadores
-- Analyst Copilot
+- Extração de requisitos
+- Geração de user stories e tickets Jira
+- Registos de risco
+- Business Analysis Copilot
+- Integração Confluence
 
 ---
 
 ## Limitações
 
-- Um PDF ativo por sessão
-- RAG funciona com **Gemini (grátis)** ou OpenAI — prefere Gemini se ambas estiverem definidas
-- OCR limitado a 20 páginas
-- Índices FAISS guardados localmente em `vector_store/`
+- Índices FAISS e sessão guardados localmente em `vector_store/` e `documents/`
+- OCR limitado a 20 páginas por documento
+- Exportação PDF usa codificação Latin-1 (caracteres especiais podem ser substituídos)
+- Comparação via chat usa heurísticas de linguagem natural (não substitui análise manual)
 
 ---
 

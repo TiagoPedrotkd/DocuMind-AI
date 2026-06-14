@@ -57,27 +57,27 @@ def _render_page_images(document: fitz.Document) -> list[bytes]:
     return images
 
 
-def _ocr_with_tesseract(images: list[bytes]) -> str:
+def _ocr_with_tesseract(images: list[bytes]) -> tuple[str, list[tuple[int, str]]]:
     """Extract text from page images using Tesseract OCR."""
     import pytesseract
     from PIL import Image
 
-    page_texts: list[str] = []
+    page_pairs: list[tuple[int, str]] = []
     for index, image_bytes in enumerate(images, start=1):
         with Image.open(io.BytesIO(image_bytes)) as image:
             text = pytesseract.image_to_string(image, lang=TESSERACT_LANG).strip()
         if text:
-            page_texts.append(text)
+            page_pairs.append((index, text))
 
-    full_text = "\n\n".join(page_texts).strip()
+    full_text = "\n\n".join(text for _, text in page_pairs).strip()
     if not full_text:
         raise PDFExtractionError(
             "O OCR local não encontrou texto legível neste PDF digitalizado."
         )
-    return full_text
+    return full_text, page_pairs
 
 
-def _ocr_with_gemini(images: list[bytes], file_name: str) -> str:
+def _ocr_with_gemini(images: list[bytes], file_name: str) -> tuple[str, list[tuple[int, str]]]:
     """Extract text from page images using Gemini vision as OCR fallback."""
     from google import genai
     from google.genai import types
@@ -86,7 +86,7 @@ def _ocr_with_gemini(images: list[bytes], file_name: str) -> str:
     client = genai.Client(api_key=api_key)
     model = get_gemini_model()
 
-    page_texts: list[str] = []
+    page_pairs: list[tuple[int, str]] = []
     for index, image_bytes in enumerate(images, start=1):
         response = client.models.generate_content(
             model=model,
@@ -100,22 +100,22 @@ def _ocr_with_gemini(images: list[bytes], file_name: str) -> str:
         )
         text = (response.text or "").strip()
         if text:
-            page_texts.append(text)
+            page_pairs.append((index, text))
 
-    full_text = "\n\n".join(page_texts).strip()
+    full_text = "\n\n".join(text for _, text in page_pairs).strip()
     if not full_text:
         raise PDFExtractionError(
             "O OCR via Gemini não conseguiu extrair texto deste PDF digitalizado."
         )
-    return full_text
+    return full_text, page_pairs
 
 
-def extract_text_with_ocr(file_name: str, file_bytes: bytes) -> tuple[str, str]:
+def extract_text_with_ocr(file_name: str, file_bytes: bytes) -> tuple[str, str, list[tuple[int, str]]]:
     """
     Extract text from a scanned PDF using OCR.
 
     Returns:
-        Tuple of (extracted text, method used: ocr_tesseract or ocr_gemini).
+        Tuple of (extracted text, method used, list of (page_number, page_text)).
     """
     document = None
     try:
@@ -129,13 +129,15 @@ def extract_text_with_ocr(file_name: str, file_bytes: bytes) -> tuple[str, str]:
 
         if _tesseract_available():
             try:
-                return _ocr_with_tesseract(images), "ocr_tesseract"
+                text, pages = _ocr_with_tesseract(images)
+                return text, "ocr_tesseract", pages
             except PDFExtractionError:
                 raise
             except Exception:
                 pass
 
-        return _ocr_with_gemini(images, file_name), "ocr_gemini"
+        text, pages = _ocr_with_gemini(images, file_name)
+        return text, "ocr_gemini", pages
     except PDFExtractionError:
         raise
     except Exception as exc:

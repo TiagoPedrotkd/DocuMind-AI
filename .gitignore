@@ -227,3 +227,7 @@ data/history.json
 # FAISS vector indexes (per document)
 vector_store/*
 !vector_store/.gitkeep
+
+# Document collection registry
+documents/*
+!documents/.gitkeep
