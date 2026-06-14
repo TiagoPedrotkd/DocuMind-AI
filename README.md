@@ -1,50 +1,64 @@
 # DocuMind AI
 
-Plataforma de inteligência documental com IA que analisa, compara e responde a perguntas sobre múltiplos documentos de negócio simultaneamente.
+Plataforma de inteligência documental com IA que analisa, compara e gera entregáveis de analista a partir de múltiplos documentos de negócio.
 
-**Versão 3.0** — Plataforma multi-documento com comparação, contradições, painel de insights e exportação.
-
----
-
-## Funcionalidades
-
-### Versão 3.0 (completa)
-- **Upload multi-documento** — Vários PDFs na mesma sessão
-- **Persistência de sessão** — Coleção, chat e análises restaurados ao reabrir a app
-- **Resumos** — Por documento e da coleção completa
-- **Exportação consolidada** — Relatório completo (resumos + insights + comparação + chat)
-- **Comparação via chat** — Perguntas comparativas detetadas automaticamente no assistente
-
-### Versão 2.0 (mantidas)
-- RAG com LangChain + FAISS
-- Embeddings Gemini ou OpenAI
-- OCR para PDFs digitalizados
-
-### Versão 1.x (mantidas)
-- Extração PyMuPDF + OCR
-- Resumos estruturados com IA
-- Interface em português
+**Versão 4.0** — Analyst Copilot para Business Analysts, Technical Analysts e Product Owners.
 
 ---
 
-## Arquitetura
+## Versão 4.0 — Analyst Copilot
+
+### Módulos implementados
+
+| Módulo | Funcionalidade |
+|--------|----------------|
+| **M1** | Extração e classificação de requisitos (funcional, não-funcional, regra de negócio, dependência, restrição) |
+| **M2** | Geração de User Stories com critérios de aceitação |
+| **M3** | Motor de análise de riscos (técnico, integração, segurança, compliance, cronograma, operacional) |
+| **M4** | Deteção de ambiguidades com perguntas sugeridas |
+| **M5** | Gap analysis — informação em falta |
+| **M6** | Gerador de perguntas para stakeholders |
+| **M7** | Resumo executivo (1 página) |
+| **M8** | Dashboard do analista com métricas |
+| **M9** | Matriz de rastreabilidade (requisito → documento → página → trecho) |
+| **M10** | Export Center — Excel, Word, PDF, Markdown |
+
+### Entregáveis gerados
+
+- Catálogo de Requisitos
+- User Stories + Critérios de Aceitação
+- Registo de Riscos
+- Relatório de Ambiguidades
+- Gap Analysis Report
+- Resumo Executivo
+- Matriz de Rastreabilidade
+- Perguntas para Entrevistas com Stakeholders
+
+### Melhorias v4 (completas)
+
+- Execução **módulo a módulo** ou pipeline completo com barra de progresso
+- **Rastreabilidade FAISS** — documento, página e chunk reais do índice vetorial
+- **Validação JSON** — normalização de categorias, prioridades e níveis de risco
+- **Dashboard corrigido** — contagens funcionais vs não-funcionais separadas
+- **Export Center** — Excel individual por relatório (incl. Ambiguidades)
+- **Testes automatizados** — `pytest tests/`
+
+---
+
+## Arquitetura v4.0
 
 ```
-Múltiplos PDFs
+Documentos (multi-PDF)
     ↓
-Extração de texto (+ OCR)
+Multi-Document RAG (FAISS)
     ↓
-Chunking por página (1000 / 200 overlap)
+Analysis Orchestrator
     ↓
-Embeddings (Gemini / OpenAI)
+Requirements → Stories → Risks → Ambiguities → Gaps
     ↓
-Índice FAISS unificado + metadados
+Stakeholder Questions → Executive Summary → Traceability
     ↓
-Pesquisa semântica (com filtro opcional)
-    ↓
-GPT / Gemini
-    ↓
-Resposta + Fontes + Insights + Comparação
+Analyst Dashboard + Export Center
 ```
 
 ---
@@ -53,43 +67,33 @@ Resposta + Fontes + Insights + Comparação
 
 ```
 documind-ai/
-│
 ├── app.py
 ├── requirements.txt
-├── .env.example
-│
 ├── uploads/
 ├── vector_store/
 ├── documents/
-├── data/
-│
 ├── src/
-│   ├── pdf_reader.py
-│   ├── ocr_reader.py
+│   ├── analyst_models.py
+│   ├── analysis_base.py
+│   ├── analysis_orchestrator.py
+│   ├── requirements_engine.py
+│   ├── story_generator.py
+│   ├── risk_engine.py
+│   ├── ambiguity_detector.py
+│   ├── gap_engine.py
+│   ├── stakeholder_questions.py
+│   ├── executive_summary_engine.py
+│   ├── traceability_matrix.py
+│   ├── analyst_dashboard.py
+│   ├── copilot_export.py
+│   ├── copilot_ui.py
 │   ├── document_manager.py
-│   ├── text_chunker.py
-│   ├── embeddings.py
-│   ├── vector_store.py
-│   ├── summarizer.py
-│   ├── chatbot.py
 │   ├── comparison_engine.py
 │   ├── insights_engine.py
-│   ├── export_utils.py
-│   ├── session_store.py
-│   ├── question_router.py
-│   ├── history.py
-│   └── utils.py
-│
+│   ├── chatbot.py
+│   └── ...
 └── README.md
 ```
-
----
-
-## Pré-requisitos
-
-- **Python 3.12+**
-- **Chave API Gemini** (recomendado, gratuito) — [Google AI Studio](https://aistudio.google.com/apikey)
-- **OpenAI API key** (opcional — alternativa à Gemini)
 
 ---
 
@@ -99,15 +103,13 @@ documind-ai/
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env
 ```
 
-Configurar `.env` (Gemini — recomendado):
+Configurar `.env`:
 
 ```env
 GEMINI_API_KEY=a_tua_chave_aqui
 GEMINI_MODEL=gemini-3.1-flash-lite
-GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 ```
 
 ---
@@ -120,43 +122,22 @@ streamlit run app.py
 
 ---
 
-## Como usar
+## Como usar o Analyst Copilot
 
-### Barra lateral
-1. Carrega um ou mais PDFs
-2. Aguarda indexação (extração → chunks por página → embeddings → FAISS)
-3. Gere a lista de documentos e escolhe o **âmbito de pesquisa**
-4. Usa a **ferramenta de comparação** para analisar dois documentos
+1. Carrega PDFs (BRD, specs, contratos, etc.)
+2. Vai ao separador **Analyst Copilot**
+3. Clica **Executar Analyst Copilot**
+4. Consulta métricas no dashboard
+5. Revê entregáveis no separador **Entregáveis**
+6. Exporta no **Export Center** (Excel com múltiplas folhas, Word, PDF, Markdown)
 
-### Área principal
-- **Resumos** — Resumo estruturado por documento ou da coleção
-- **Painel de Insights** — Dashboard automático do analista
-- **Comparação** — Resultados de comparação, contradições e lacunas
-- **Assistente** — Chat multi-documento com comparação automática por pergunta
-- **Exportar** — Relatório completo em Markdown, Word ou PDF
+### Separadores adicionais (v3 mantidos)
 
-A sessão (documentos, chat, análises) é guardada em `documents/` e restaurada ao reiniciar a app.
-
-### Exemplos de perguntas
-
-- *Quais são os principais requisitos em todos os documentos?*
-- *Que requisitos aparecem no BRD mas não na especificação técnica?*
-- *Que integrações são mencionadas em todos os documentos?*
-- *Quais são os riscos do projeto?*
-
----
-
-## Variáveis de ambiente
-
-| Variável | Obrigatória | Descrição |
-|----------|-------------|-----------|
-| `GEMINI_API_KEY` | Sim* | Chave Google Gemini (chat + embeddings) |
-| `GEMINI_MODEL` | Não | Modelo de chat (predefinição: `gemini-3.1-flash-lite`) |
-| `GEMINI_EMBEDDING_MODEL` | Não | Embeddings (predefinição: `gemini-embedding-001`) |
-| `OPENAI_API_KEY` | Sim* | Alternativa à Gemini |
-| `TESSERACT_CMD` | Não | Caminho do Tesseract no Windows |
-
-\* Pelo menos uma chave (Gemini ou OpenAI) é necessária.
+- **Resumos** — resumo por documento/coleção
+- **Insights** — painel de insights
+- **Comparação** — análise cruzada
+- **Assistente** — chat RAG com comparação automática
+- **Exportar** — relatório de sessão + export copilot
 
 ---
 
@@ -165,30 +146,18 @@ A sessão (documentos, chat, análises) é guardada em `documents/` e restaurada
 | Componente | Tecnologia |
 |------------|------------|
 | Frontend | Streamlit |
-| PDF | PyMuPDF + OCR (Tesseract/Gemini) |
-| RAG | LangChain + FAISS |
-| Embeddings | Gemini `gemini-embedding-001` ou OpenAI |
-| Chat | Gemini `gemini-3.1-flash-lite` ou GPT-4.1-mini |
-| Exportação | python-docx, fpdf2 |
+| RAG | LangChain + FAISS + Gemini |
+| Análise | Motores modulares + LLM estruturado (JSON) |
+| Exportação | openpyxl, python-docx, fpdf2 |
 
 ---
 
-## Preparado para v4.0
+## Preparado para v5.0
 
-- Extração de requisitos
-- Geração de user stories e tickets Jira
-- Registos de risco
-- Business Analysis Copilot
-- Integração Confluence
-
----
-
-## Limitações
-
-- Índices FAISS e sessão guardados localmente em `vector_store/` e `documents/`
-- OCR limitado a 20 páginas por documento
-- Exportação PDF usa codificação Latin-1 (caracteres especiais podem ser substituídos)
-- Comparação via chat usa heurísticas de linguagem natural (não substitui análise manual)
+- Integração Jira / Confluence / Azure DevOps
+- Estimativa de projeto
+- Recomendações de arquitetura
+- Solution Design Assistant
 
 ---
 

@@ -1,4 +1,4 @@
-"""DocuMind AI v3.0 — Plataforma de inteligência multi-documento."""
+"""DocuMind AI v4.0 — Analyst Copilot."""
 
 from __future__ import annotations
 
@@ -6,11 +6,17 @@ import hashlib
 
 import streamlit as st
 
+from src.analyst_models import CopilotResults
 from src.chatbot import ChatAnswer, answer_question, generate_analyst_questions
 from src.comparison_engine import (
     analyze_missing_requirements,
     compare_documents,
     detect_contradictions,
+)
+from src.copilot_ui import (
+    render_copilot_dashboard,
+    render_copilot_deliverables,
+    render_copilot_export_center,
 )
 from src.document_manager import DocumentCollection, DocumentManager
 from src.export_utils import (
@@ -93,6 +99,7 @@ def _init_session_state() -> None:
         "export_title": "DocuMind AI",
         "processed_uploads": set(),
         "_session_restored": False,
+        "copilot_results": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -120,8 +127,13 @@ def _collection_label() -> str:
     return ", ".join(collection.document_names)
 
 
+def _get_copilot() -> CopilotResults | None:
+    return st.session_state.copilot_results
+
+
 def _save_session() -> None:
     """Persist session data to disk."""
+    copilot = st.session_state.copilot_results
     save_session_state(
         {
             "collection_id": st.session_state.collection_id,
@@ -133,6 +145,7 @@ def _save_session() -> None:
             "comparison_title": st.session_state.comparison_title,
             "document_summaries": st.session_state.document_summaries,
             "collection_summary": st.session_state.collection_summary,
+            "copilot_results": copilot.to_dict() if copilot else None,
         }
     )
 
@@ -180,6 +193,9 @@ def _restore_session() -> None:
         st.session_state.comparison_title = session.get("comparison_title", "")
         st.session_state.document_summaries = session.get("document_summaries", {})
         st.session_state.collection_summary = session.get("collection_summary")
+        st.session_state.copilot_results = CopilotResults.from_dict(
+            session.get("copilot_results")
+        )
         if session.get("processed_uploads"):
             st.session_state.processed_uploads = set(session["processed_uploads"])
 
@@ -305,7 +321,7 @@ def process_uploaded_documents(uploaded_files: list) -> None:
 def render_sidebar_upload() -> None:
     """Barra lateral com upload multi-documento."""
     st.sidebar.title("DocuMind AI")
-    st.sidebar.markdown("**Versão 3.0** — Inteligência multi-documento")
+    st.sidebar.markdown("**Versão 4.0** — Analyst Copilot")
     st.sidebar.divider()
 
     uploaded_files = st.sidebar.file_uploader(
@@ -452,7 +468,7 @@ def render_header() -> None:
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     st.markdown('<p class="main-header">DocuMind AI</p>', unsafe_allow_html=True)
     st.markdown(
-        '<p class="sub-header">Plataforma de inteligência multi-documento para analistas</p>',
+        '<p class="sub-header">Analyst Copilot — assistente de análise de negócio e técnica</p>',
         unsafe_allow_html=True,
     )
 
@@ -827,9 +843,33 @@ def main() -> None:
     render_sidebar_config()
     render_header()
 
-    tab_summary, tab_insights, tab_compare, tab_chat, tab_export = st.tabs(
-        ["Resumos", "Painel de Insights", "Comparação", "Assistente", "Exportar"]
+    tab_copilot, tab_deliverables, tab_summary, tab_insights, tab_compare, tab_chat, tab_export = (
+        st.tabs(
+            [
+                "Analyst Copilot",
+                "Entregáveis",
+                "Resumos",
+                "Insights",
+                "Comparação",
+                "Assistente",
+                "Exportar",
+            ]
+        )
     )
+
+    with tab_copilot:
+        if _ensure_vector_store_loaded():
+            render_copilot_dashboard(
+                _get_copilot(),
+                store=st.session_state.vector_store,
+                document_names=_active_search_scope(),
+                on_save=_save_session,
+            )
+        else:
+            st.info("Carrega documentos para executar o Analyst Copilot.")
+
+    with tab_deliverables:
+        render_copilot_deliverables(_get_copilot())
 
     with tab_summary:
         render_summary_tab()
@@ -845,6 +885,8 @@ def main() -> None:
 
     with tab_export:
         render_export_tab()
+        st.divider()
+        render_copilot_export_center(_get_copilot(), _collection_label())
 
 
 if __name__ == "__main__":
