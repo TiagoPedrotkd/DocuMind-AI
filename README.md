@@ -1,98 +1,159 @@
 # DocuMind AI
 
-Plataforma de inteligência documental com IA que analisa, compara e gera entregáveis de analista a partir de múltiplos documentos de negócio.
+Plataforma de inteligência documental e delivery que transforma documentação de projeto em artefactos acionáveis para equipas enterprise.
 
-**Versão 4.0** — Analyst Copilot para Business Analysts, Technical Analysts e Product Owners.
+**Versão 6.0** — Multi-Agent Project Intelligence Platform
 
 ---
 
-## Versão 4.0 — Analyst Copilot
+## Versão 6.0 — Multi-Agent Platform
 
-### Módulos implementados
+### Agentes Especializados
+
+| Agente | Responsabilidades |
+|--------|-------------------|
+| **Analyst Agent** | Requisitos, user stories, ambiguidades, acceptance criteria |
+| **Solution Architect Agent** | Arquitetura, componentes, integrações |
+| **Security Agent** | GDPR, autenticação, conformidade, proteção de dados |
+| **QA Agent** | Casos de teste, cenários, cobertura |
+| **Project Manager Agent** | Estimativas, roadmap, plano de implementação |
+| **Risk Agent** | Risk register, impacto, mitigação |
+| **Orchestrator Agent** | Roteamento inteligente + resposta consolidada |
+
+### Funcionalidades Avançadas
+
+- **Project Digital Twin** — modelo vivo: Requisitos → Stories → Sistemas → Riscos → Testes
+- **Sprint Planning AI** — sugestão de sprints com story points
+- **Architecture Review** — deteção de SPOF, monitorização, dependências
+- **Stakeholder Simulation** — Cliente, PO, Architect, QA Lead
+- **Project Health Engine v6** — Requirements, Architecture, Testing, Risk
+- **Knowledge Graph** — Neo4j (enterprise) ou SQLite (fallback local)
+
+### Enterprise Stack
+
+| Componente | Tecnologia | Modo |
+|------------|------------|------|
+| **Orchestrator** | LangGraph / native / CrewAI / AutoGen | `ORCHESTRATOR_MODE` |
+| **Knowledge Graph** | Neo4j | `NEO4J_URI` |
+| **Persistence** | PostgreSQL | `POSTGRES_URL` |
+| **Cache** | Redis | `REDIS_URL` |
+| **API** | FastAPI (sem login) | `DOCUMIND_API_URL` |
+| **Deploy** | Docker Compose | `docker-compose up` |
+
+### Docker Compose (stack completa)
+
+```bash
+# .env com GEMINI_API_KEY
+docker compose up --build
+```
+
+| Serviço | URL |
+|---------|-----|
+| Streamlit | http://localhost:8501 |
+| FastAPI | http://localhost:8000 |
+| Neo4j Browser | http://localhost:7474 |
+| PostgreSQL | localhost:5432 |
+| Redis | localhost:6379 |
+
+Depois: http://localhost:8501 (sem login — abre direto)
+
+---
+
+```powershell
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Opcional — ativar LangGraph:
+
+```env
+ORCHESTRATOR_MODE=langgraph
+```
+
+### Fluxo v6
+
+> "Analisa este projeto e diz-me os riscos, requisitos em falta, arquitetura recomendada e plano de implementação."
+
+O Orchestrator chama os agentes relevantes e consolida numa resposta única.
+
+1. Carrega PDFs
+2. Tab **Início** → pergunta ao Orchestrator
+3. Explora **Digital Twin**, **Sprint Planning**, **Knowledge Graph**
+4. v4/v5 continuam disponíveis para pipelines detalhados
+
+### Exemplo de pergunta
+
+## Versão 5.0 — Delivery Copilot
+
+### Módulos
 
 | Módulo | Funcionalidade |
 |--------|----------------|
-| **M1** | Extração e classificação de requisitos (funcional, não-funcional, regra de negócio, dependência, restrição) |
-| **M2** | Geração de User Stories com critérios de aceitação |
-| **M3** | Motor de análise de riscos (técnico, integração, segurança, compliance, cronograma, operacional) |
-| **M4** | Deteção de ambiguidades com perguntas sugeridas |
-| **M5** | Gap analysis — informação em falta |
-| **M6** | Gerador de perguntas para stakeholders |
-| **M7** | Resumo executivo (1 página) |
-| **M8** | Dashboard do analista com métricas |
-| **M9** | Matriz de rastreabilidade (requisito → documento → página → trecho) |
-| **M10** | Export Center — Excel, Word, PDF, Markdown |
+| **M1** | Integração **Jira** — Epics, Stories, Tasks, Bugs (preview ou API real) |
+| **M2** | Integração **Confluence** — BRD, specs, risk register, solution overview |
+| **M3** | Integração **Azure DevOps** — User Stories, Features, Tasks |
+| **M4** | Ciclo de vida — Requisito → Story → Task → Implementação → Testes |
+| **M5** | Meeting Intelligence — action items, decisões, riscos, dependências |
+| **M6** | Project Health Analyzer — score 0-100 + warnings |
+| **M7** | Estimation Assistant — story points, complexidade, esforço |
+| **M8** | Architecture Awareness — sistemas, APIs, integrações |
+| **M9** | Test Scenario Generator — casos positivos, negativos, edge cases |
+| **M10** | Project Knowledge Base — SQLite + Q&A persistente |
+| **M11** | Executive Reporting — weekly status, risks, readiness |
+| **M12** | Role-Based Views — BA, TA, PM, Executive, Scrum Master, Architect |
 
-### Entregáveis gerados
+### Integrações Enterprise
 
-- Catálogo de Requisitos
-- User Stories + Critérios de Aceitação
-- Registo de Riscos
-- Relatório de Ambiguidades
-- Gap Analysis Report
-- Resumo Executivo
-- Matriz de Rastreabilidade
-- Perguntas para Entrevistas com Stakeholders
+Configura no `.env` (opcional — sem credenciais usa **modo preview**):
 
-### Melhorias v4 (completas)
+```env
+JIRA_URL=https://your-domain.atlassian.net
+JIRA_EMAIL=you@company.com
+JIRA_API_TOKEN=...
+JIRA_PROJECT_KEY=PROJ
 
-- Execução **módulo a módulo** ou pipeline completo com barra de progresso
-- **Rastreabilidade FAISS** — documento, página e chunk reais do índice vetorial
-- **Validação JSON** — normalização de categorias, prioridades e níveis de risco
-- **Dashboard corrigido** — contagens funcionais vs não-funcionais separadas
-- **Export Center** — Excel individual por relatório (incl. Ambiguidades)
-- **Testes automatizados** — `pytest tests/`
+CONFLUENCE_URL=https://your-domain.atlassian.net
+CONFLUENCE_SPACE_KEY=DOCS
+
+AZURE_DEVOPS_ORG=your-org
+AZURE_DEVOPS_PROJECT=your-project
+AZURE_DEVOPS_PAT=...
+```
+
+### Fluxo recomendado
+
+1. Carrega PDFs de projeto
+2. **Analyst Copilot** (v4) → requisitos, stories, riscos
+3. **Delivery Intelligence** (v5) → Jira drafts, health, estimations, testes
+4. **Integrações** → sincronizar (ou preview) com Jira/Confluence/Azure
+5. **Knowledge Base** → perguntas sobre riscos, lacunas, decisões
+6. **Role View** → dashboard adaptado ao teu perfil
 
 ---
 
-## Arquitetura v4.0
+## Versões anteriores (mantidas)
 
-```
-Documentos (multi-PDF)
-    ↓
-Multi-Document RAG (FAISS)
-    ↓
-Analysis Orchestrator
-    ↓
-Requirements → Stories → Risks → Ambiguities → Gaps
-    ↓
-Stakeholder Questions → Executive Summary → Traceability
-    ↓
-Analyst Dashboard + Export Center
-```
+- **v4** — Analyst Copilot (10 módulos de análise)
+- **v3** — Multi-documento, comparação, persistência
+- **v2** — RAG conversacional
+- **v1** — Resumos e OCR
 
 ---
 
-## Estrutura do projeto
+## Arquitetura v5
 
 ```
-documind-ai/
-├── app.py
-├── requirements.txt
-├── uploads/
-├── vector_store/
-├── documents/
-├── src/
-│   ├── analyst_models.py
-│   ├── analysis_base.py
-│   ├── analysis_orchestrator.py
-│   ├── requirements_engine.py
-│   ├── story_generator.py
-│   ├── risk_engine.py
-│   ├── ambiguity_detector.py
-│   ├── gap_engine.py
-│   ├── stakeholder_questions.py
-│   ├── executive_summary_engine.py
-│   ├── traceability_matrix.py
-│   ├── analyst_dashboard.py
-│   ├── copilot_export.py
-│   ├── copilot_ui.py
-│   ├── document_manager.py
-│   ├── comparison_engine.py
-│   ├── insights_engine.py
-│   ├── chatbot.py
-│   └── ...
-└── README.md
+Documentos + Reuniões
+    ↓
+Knowledge Layer (SQLite)
+    ↓
+RAG + Analysis Engine (v4)
+    ↓
+Delivery Engine (v5)
+    ↓
+Jira / Confluence / Azure DevOps
+    ↓
+Project Intelligence Dashboard
 ```
 
 ---
@@ -103,61 +164,26 @@ documind-ai/
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
-
-Configurar `.env`:
-
-```env
-GEMINI_API_KEY=a_tua_chave_aqui
-GEMINI_MODEL=gemini-3.1-flash-lite
-```
-
----
-
-## Executar
-
-```bash
+cp .env.example .env
 streamlit run app.py
 ```
 
----
+## Testes
 
-## Como usar o Analyst Copilot
-
-1. Carrega PDFs (BRD, specs, contratos, etc.)
-2. Vai ao separador **Analyst Copilot**
-3. Clica **Executar Analyst Copilot**
-4. Consulta métricas no dashboard
-5. Revê entregáveis no separador **Entregáveis**
-6. Exporta no **Export Center** (Excel com múltiplas folhas, Word, PDF, Markdown)
-
-### Separadores adicionais (v3 mantidos)
-
-- **Resumos** — resumo por documento/coleção
-- **Insights** — painel de insights
-- **Comparação** — análise cruzada
-- **Assistente** — chat RAG com comparação automática
-- **Exportar** — relatório de sessão + export copilot
+```bash
+pytest tests/
+```
 
 ---
 
-## Stack técnica
+## API FastAPI
 
-| Componente | Tecnologia |
-|------------|------------|
-| Frontend | Streamlit |
-| RAG | LangChain + FAISS + Gemini |
-| Análise | Motores modulares + LLM estruturado (JSON) |
-| Exportação | openpyxl, python-docx, fpdf2 |
+```bash
+pip install -r requirements-api.txt
+uvicorn api.main:app --reload --port 8000
+```
 
----
-
-## Preparado para v5.0
-
-- Integração Jira / Confluence / Azure DevOps
-- Estimativa de projeto
-- Recomendações de arquitetura
-- Solution Design Assistant
+Endpoints: `/health`, `/agents/analyze`, `/knowledge-graph/stats`, `/audit` (sem autenticação)
 
 ---
 

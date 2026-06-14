@@ -85,7 +85,6 @@ def render_copilot_dashboard(
     on_save,
 ) -> None:
     """MODULE 8 — Analyst dashboard with metrics and module execution."""
-    st.subheader("Analyst Copilot Dashboard")
 
     module_label = st.selectbox(
         "Módulo a executar",

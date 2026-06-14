@@ -223,6 +223,9 @@ uploads/*
 
 # Analysis history (local data)
 data/history.json
+data/audit_log.jsonl
+data/knowledge_base.db
+data/knowledge_graph.db
 
 # FAISS vector indexes (per document)
 vector_store/*
